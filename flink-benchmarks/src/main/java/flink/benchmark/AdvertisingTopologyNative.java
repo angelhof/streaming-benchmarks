@@ -16,6 +16,7 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.CheckpointingMode;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
+import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer08;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaConsumer082;
 import org.apache.flink.streaming.util.serialization.SimpleStringSchema;
 import org.apache.flink.util.Collector;
@@ -35,17 +36,28 @@ public class AdvertisingTopologyNative {
 
     public static void main(final String[] args) throws Exception {
 
+        System.out.println("I am done pipi");
+
         ParameterTool parameterTool = ParameterTool.fromArgs(args);
+
+        System.out.println("I am done pipi 2");
+
 
         Map conf = Utils.findAndReadConfigFile(parameterTool.getRequired("confPath"), true);
         int kafkaPartitions = ((Number)conf.get("kafka.partitions")).intValue();
         int hosts = ((Number)conf.get("process.hosts")).intValue();
         int cores = ((Number)conf.get("process.cores")).intValue();
 
+        System.out.println("I am done pipi 3");
+
+
         ParameterTool flinkBenchmarkParams = ParameterTool.fromMap(getFlinkConfs(conf));
 
         LOG.info("conf: {}", conf);
         LOG.info("Parameters used: {}", flinkBenchmarkParams.toMap());
+
+        System.out.println("I am done pipi 3");
+
 
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.getConfig().setGlobalJobParameters(flinkBenchmarkParams);
@@ -58,16 +70,24 @@ public class AdvertisingTopologyNative {
             // enable checkpointing for fault tolerance
             env.enableCheckpointing(flinkBenchmarkParams.getLong("flink.checkpoint-interval", 1000));
         }
+
+        // WARNING: There is a problem with the parallelism. If I uncomment the following the benchmark doesn't run at all.
         // set default parallelism for all operators (recommended value: number of available worker CPU cores in the cluster (hosts * cores))
-        env.setParallelism(hosts * cores);
+//        env.setParallelism(hosts * cores);
+
+        System.out.println("I am done pipi 4");
+
 
         DataStream<String> messageStream = env
-                .addSource(new FlinkKafkaConsumer082<String>(
+                .addSource(new FlinkKafkaConsumer08<String>(
                         flinkBenchmarkParams.getRequired("topic"),
                         new SimpleStringSchema(),
                         flinkBenchmarkParams.getProperties())).setParallelism(Math.min(hosts * cores, kafkaPartitions));
 
-        messageStream
+        System.out.println("I am done pipi 5");
+
+        DataStream intermediateStream =
+                messageStream
                 .rebalance()
                 // Parse the String as JSON
                 .flatMap(new DeserializeBolt())
@@ -76,8 +96,11 @@ public class AdvertisingTopologyNative {
                 .filter(new EventFilterBolt())
 
                 // project the event
-                .<Tuple2<String, String>>project(2, 5)
+                .<Tuple2<String, String>>project(2, 5);
 
+        intermediateStream.print();
+
+        intermediateStream
                 // perform join with redis data
                 .flatMap(new RedisJoinBolt())
 
@@ -87,6 +110,9 @@ public class AdvertisingTopologyNative {
 
 
         env.execute();
+
+        System.out.println("I am done pipi 6");
+
     }
 
     public static class DeserializeBolt implements

@@ -28,6 +28,7 @@ public class CampaignProcessorCommon {
     private static final Long time_divisor = 10000L; // 10 second windows
 
     public CampaignProcessorCommon(String redisServerHostname) {
+        System.out.println(" -- -- -- " + redisServerHostname);
         jedis = new Jedis(redisServerHostname);
         flush_jedis = new Jedis(redisServerHostname);
     }

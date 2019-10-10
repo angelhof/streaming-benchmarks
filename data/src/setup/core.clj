@@ -128,6 +128,7 @@
                  (line-seq kafkas)))))
 
 (defn get-stats [redis-host]
+  (println "Getting stats:...")
   (with-open [seen-file (clojure.java.io/writer "seen.txt")
               updated-file (clojure.java.io/writer "updated.txt")]
     (letfn [(data-printer [[seen updated]]
@@ -198,7 +199,7 @@
             (Thread/sleep (- t cur))
             (future
               (if (> cur (+ t 100))
-                (println "Falling behind by:" (- cur t) "ms"))))
+                (println "Curr time:" cur "- Falling behind by:" (- cur t) "ms"))))
           (send p (record "ad-events"
                           (.getBytes (make-kafka-event-at t with-skew? ads user-ids page-ids)))))))))
 
