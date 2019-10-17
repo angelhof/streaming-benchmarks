@@ -166,18 +166,26 @@ public class AdvertisingTopologyNative {
     public static void measureMemory() {
         PrintWriter pw = null;
 
+        final long MEGABYTE = 1024L * 1024L;
+
+        System.out.println(" -- -- -- Thread -- -- -- ");
         // TODO: Debug why this doesn't work, when before it worked properly
         try {
             File file = new File("memory-log.txt");
-            FileWriter fw = new FileWriter(file, true);
+            System.out.println("File writable: " + file.canWrite());
+            file.setWritable(true);
+            FileWriter fw = new FileWriter(file);
             pw = new PrintWriter(fw);
             pw.println("Hi :)");
             Runtime runtime = Runtime.getRuntime();
-            long memory = getUsedMemory(runtime);
-            pw.println("Used memory is bytes: " + memory);
+            long memory = getUsedMemory(runtime) / MEGABYTE;
+            pw.println("Used memory: " + memory + "MB");
+            pw.flush();
             while(true) {
-                memory = getUsedMemory(runtime);
-                pw.println("Used memory is bytes: " + memory);
+                memory = getUsedMemory(runtime) / MEGABYTE;
+                pw.println("Used memory: " + memory + "MB");
+                pw.flush();
+                System.out.println("Used memory: " + memory + "MB");
                 TimeUnit.SECONDS.sleep(1);
             }
         } catch (IOException e) {
