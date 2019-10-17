@@ -6,6 +6,8 @@ set -o errtrace
 set -o nounset
 set -o errexit
 
+alias python="python2.7"
+
 LEIN=${LEIN:-lein}
 MVN=${MVN:-mvn}
 GIT=${GIT:-git}

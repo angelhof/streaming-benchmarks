@@ -33,6 +33,7 @@ public class CampaignProcessorCommon {
         flush_jedis = new Jedis(redisServerHostname);
     }
 
+
     public void prepare() {
 
         campaign_windows = new LRUHashMap<Long, HashMap<String, Window>>(10);
@@ -68,12 +69,12 @@ public class CampaignProcessorCommon {
     }
 
     private void writeWindow(String campaign, Window win) {
-        String windowUUID = flush_jedis.hmget(campaign, win.timestamp).get(0);
+        String windowUUID = flush_jedis.hget(campaign, win.timestamp);
         if (windowUUID == null) {
             windowUUID = UUID.randomUUID().toString();
             flush_jedis.hset(campaign, win.timestamp, windowUUID);
 
-            String windowListUUID = flush_jedis.hmget(campaign, "windows").get(0);
+            String windowListUUID = flush_jedis.hget(campaign, "windows");
             if (windowListUUID == null) {
                 windowListUUID = UUID.randomUUID().toString();
                 flush_jedis.hset(campaign, "windows", windowListUUID);
