@@ -31,6 +31,7 @@ import org.slf4j.LoggerFactory;
 import edu.upenn.streamstesting.StreamEquivalenceMatcher;
 
 
+import javax.xml.crypto.Data;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -87,6 +88,7 @@ public class AdvertisingTopologyNative {
         // set default parallelism for all operators (recommended value: number of available worker CPU cores in the cluster (hosts * cores))
 //        env.setParallelism(hosts * cores);
 //        env.setParallelism(1);
+        env.setParallelism(2);
         System.out.println("I am done pipi 4");
 
 
@@ -99,40 +101,27 @@ public class AdvertisingTopologyNative {
 
         System.out.println("I am done pipi 5");
 
-        KeyedStream<Tuple3<String, String, String>, Tuple> intermediateStream =
-                messageStream
-                .rebalance()
-                // Parse the String as JSON
-                .flatMap(new DeserializeBolt())
+        // Uncomment any of the following scenarios.
 
-                //Filter the records if event type is "view"
-                .filter(new EventFilterBolt())
+        // This executes one pipeline (In order to find the maximum manageable throughput for it in our system)
+        executeOnePipeline(env, messageStream);
 
-                // project the event
-                .<Tuple2<String, String>>project(2, 5)
+        // This executes two pipeline (In order to find the maximum manageable throughput for them in our system)
+        executeTwoPipelines(env, messageStream);
 
-                // perform join with redis data
-                .flatMap(new RedisJoinBolt())
+        // This just sends the output of one pipeline to two sinks. It is not really useful in the final evaluation
+        compareOnePipeline(env, messageStream);
 
-                // process campaign
-                .keyBy(0);
+        // This compares the outputs of two pipelines. It is used in the final evaluation.
+        compareTwoPipelines(env, messageStream);
+
+    }
+
+    public static void executeOnePipeline(StreamExecutionEnvironment env, DataStream<String> input) throws Exception {
+        // Computation
+        KeyedStream<Tuple3<String, String, String>, Tuple> intermediateStream = computation(input);
 
         // intermediateStream.print();
-
-
-        // This can be used to test that the remote matcher indeed works.
-//        KeyedStream<Tuple3<String, String, String>, Tuple> bad =
-//                env.fromElements(new Tuple3<>("pipi", "popo", "pupu")).keyBy(0);
-
-        // Here is where we will probe. Unfortunately, there is no ordering needed as it seems, as the event time
-        // can be used to write in a window far back in the past..
-
-        RemoteMatcherFactory.init();
-        RemoteStreamEquivalenceMatcher<Tuple3<String, String, String>> matcher = RemoteMatcherFactory.getInstance().
-                createMatcher(intermediateStream, intermediateStream, new FullDependence<>());
-
-        // TODO: Can we change the implementation in a way that requires ordering? (It is clear that this implementation
-        // doesn't provide any ordering though).
 
         intermediateStream.flatMap(new CampaignProcessor());
 
@@ -142,6 +131,57 @@ public class AdvertisingTopologyNative {
 
         // VERY IMPORTANT NOTE: I shouldn't look at any optimizations in the last step, as it is very difficult to witness
         // them. I should just try to do optimizations before the last step. Or just do a test there.
+
+        env.execute();
+    }
+
+    public static void executeTwoPipelines(StreamExecutionEnvironment env, DataStream<String> input) throws Exception {
+        // Computation
+        KeyedStream<Tuple3<String, String, String>, Tuple> intermediateStream1 = computation(input);
+        intermediateStream1.flatMap(new CampaignProcessor());
+
+        KeyedStream<Tuple3<String, String, String>, Tuple> intermediateStream2 = computation(input);
+        intermediateStream2.flatMap(new CampaignProcessor());
+
+        env.execute();
+    }
+
+    public static void compareOnePipeline(StreamExecutionEnvironment env, DataStream<String> input) throws Exception {
+        // Computation
+        KeyedStream<Tuple3<String, String, String>, Tuple> intermediateStream = computation(input);
+        intermediateStream.flatMap(new CampaignProcessor());
+
+        compareOutputs(intermediateStream, intermediateStream, env);
+    }
+
+    public static void compareTwoPipelines(StreamExecutionEnvironment env, DataStream<String> input) throws Exception {
+        // Computation
+        KeyedStream<Tuple3<String, String, String>, Tuple> intermediateStream1 = computation(input);
+        intermediateStream1.flatMap(new CampaignProcessor());
+
+        KeyedStream<Tuple3<String, String, String>, Tuple> intermediateStream2 = computation(input);
+        intermediateStream2.flatMap(new CampaignProcessor());
+
+        compareOutputs(intermediateStream1, intermediateStream2, env);
+    }
+
+    // This one has to call the intermediate pipeline again, so that there are indeed 2 pipelines running at the same time
+    public static void compareOutputs(KeyedStream<Tuple3<String, String, String>, Tuple> leftStream,
+                                      KeyedStream<Tuple3<String, String, String>, Tuple> rightStream,
+                                      StreamExecutionEnvironment env) throws Exception {
+        // This can be used to test that the remote matcher indeed works.
+//        KeyedStream<Tuple3<String, String, String>, Tuple> bad =
+//                env.fromElements(new Tuple3<>("pipi", "popo", "pupu")).keyBy(0);
+
+        // Here is where we will probe. Unfortunately, there is no ordering needed as it seems, as the event time
+        // can be used to write in a window far back in the past..
+
+        RemoteMatcherFactory.init();
+        RemoteStreamEquivalenceMatcher<Tuple3<String, String, String>> matcher = RemoteMatcherFactory.getInstance().
+                createMatcher(leftStream, rightStream, new EmptyDependence<>(), true);
+
+        // TODO: Can we change the implementation in a way that requires ordering? (It is clear that this implementation
+        // doesn't provide any ordering though).
 
         // Run a thread that will output memory measurements every 1 second.
         Runnable r = new Runnable() {
@@ -158,8 +198,29 @@ public class AdvertisingTopologyNative {
         matcher.assertStreamsAreEquivalent();
         System.out.println("I am done pipi 7");
         RemoteMatcherFactory.destroy();
-
     }
+
+    public static KeyedStream<Tuple3<String, String, String>, Tuple> computation(DataStream<String> inputStream) {
+        KeyedStream<Tuple3<String, String, String>, Tuple> intermediateStream =
+                inputStream
+                        .rebalance()
+                        // Parse the String as JSON
+                        .flatMap(new DeserializeBolt())
+
+                        //Filter the records if event type is "view"
+                        .filter(new EventFilterBolt())
+
+                        // project the event
+                        .<Tuple2<String, String>>project(2, 5)
+
+                        // perform join with redis data
+                        .flatMap(new RedisJoinBolt())
+
+                        // process campaign
+                        .keyBy(0);
+        return intermediateStream;
+    }
+
 
     // If we have issues with sleep drift, then we can use this method.
     // https://stackoverflow.com/questions/24104313/how-do-i-make-a-delay-in-java
