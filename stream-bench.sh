@@ -129,6 +129,9 @@ run() {
     echo '    - "'$ZK_HOST'"' >> $CONF_FILE
     echo >> $CONF_FILE
     echo 'kafka.port: 9092' >> $CONF_FILE
+    ## echo 'rest.bin-port: 8077' >> $CONF_FILE
+    echo 'rest.port: 8077' >> $CONF_FILE
+    ## echo 'taskmanager.data.port: 10407' >> $CONF_FILE
 	echo 'zookeeper.port: '$ZK_PORT >> $CONF_FILE
 	echo 'redis.host: "localhost"' >> $CONF_FILE
 	echo 'kafka.topic: "'$TOPIC'"' >> $CONF_FILE
@@ -168,6 +171,10 @@ run() {
     #Fetch Flink
     FLINK_FILE="$FLINK_DIR-bin-hadoop27-scala_${SCALA_BIN_VERSION}.tgz"
     fetch_untar_file "$FLINK_FILE" "$APACHE_MIRROR/flink/flink-$FLINK_VERSION/$FLINK_FILE"
+
+    echo 'rest.port: 8077' >> $FLINK_DIR/conf/flink-conf.yaml
+    echo 'taskmanager.numberOfTaskSlots: 4' >> $FLINK_DIR/conf/flink-conf.yaml
+    echo 'taskmanager.heap.size: "2048m"' >> $FLINK_DIR/conf/flink-conf.yaml
 
     #Fetch Spark
     SPARK_FILE="$SPARK_DIR.tgz"
@@ -254,7 +261,7 @@ run() {
     stop_if_needed spark.benchmark.KafkaRedisAdvertisingStream "Spark Client Process"
   elif [ "START_FLINK_PROCESSING" = "$OPERATION" ];
   then
-    "$FLINK_DIR/bin/flink" run ./flink-benchmarks/target/flink-benchmarks-0.1.0.jar --confPath $CONF_FILE &
+    JVM_ARGS="-XX:+PrintGC -XX:+PrintGCDetails -XX:+PrintGCTimeStamps" "$FLINK_DIR/bin/flink" run ./flink-benchmarks/target/flink-benchmarks-0.1.0.jar --confPath $CONF_FILE &
     sleep 3
   elif [ "STOP_FLINK_PROCESSING" = "$OPERATION" ];
   then

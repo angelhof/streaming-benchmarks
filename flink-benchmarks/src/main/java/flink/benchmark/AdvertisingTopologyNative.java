@@ -35,6 +35,8 @@ import javax.xml.crypto.Data;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
+import java.lang.management.MemoryMXBean;
 import java.io.PrintWriter;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
@@ -87,7 +89,7 @@ public class AdvertisingTopologyNative {
         // WARNING: There is a problem with the parallelism. If I uncomment the following the benchmark doesn't run at all.
         // set default parallelism for all operators (recommended value: number of available worker CPU cores in the cluster (hosts * cores))
 //        env.setParallelism(hosts * cores);
-//        env.setParallelism(1);
+        // env.setParallelism(1);
         env.setParallelism(2);
         System.out.println("I am done pipi 4");
 
@@ -101,16 +103,19 @@ public class AdvertisingTopologyNative {
 
         System.out.println("I am done pipi 5");
 
+
+	TimeUnit.SECONDS.sleep(5);
+
         // Uncomment any of the following scenarios.
 
         // This executes one pipeline (In order to find the maximum manageable throughput for it in our system)
-        executeOnePipeline(env, messageStream);
+        // executeOnePipeline(env, messageStream);
 
         // This executes two pipeline (In order to find the maximum manageable throughput for them in our system)
-        executeTwoPipelines(env, messageStream);
+        // executeTwoPipelines(env, messageStream);
 
         // This just sends the output of one pipeline to two sinks. It is not really useful in the final evaluation
-        compareOnePipeline(env, messageStream);
+        // compareOnePipeline(env, messageStream);
 
         // This compares the outputs of two pipelines. It is used in the final evaluation.
         compareTwoPipelines(env, messageStream);
@@ -221,7 +226,6 @@ public class AdvertisingTopologyNative {
         return intermediateStream;
     }
 
-
     // If we have issues with sleep drift, then we can use this method.
     // https://stackoverflow.com/questions/24104313/how-do-i-make-a-delay-in-java
     public static void measureMemory() {
@@ -238,16 +242,22 @@ public class AdvertisingTopologyNative {
             FileWriter fw = new FileWriter(file);
             pw = new PrintWriter(fw);
             pw.println("Hi :)");
-            Runtime runtime = Runtime.getRuntime();
-            long memory = getUsedMemory(runtime) / MEGABYTE;
-            pw.println("Used memory: " + memory + "MB");
-            pw.flush();
+
+            long seconds = 0;
+            long gcPeriod = 120;
+
+            MemoryMXBean memoryManager = ManagementFactory.getMemoryMXBean();
+            getOutputUsedMemory2(memoryManager, pw, MEGABYTE);
+//            Runtime runtime = Runtime.getRuntime();
+//            getOutputUsedMemory(runtime, pw, MEGABYTE);
             while(true) {
-                memory = getUsedMemory(runtime) / MEGABYTE;
-                pw.println("Used memory: " + memory + "MB");
-                pw.flush();
-                System.out.println("Used memory: " + memory + "MB");
+//                getOutputUsedMemory(runtime, pw, MEGABYTE);
+                getOutputUsedMemory2(memoryManager, pw, MEGABYTE);
                 TimeUnit.SECONDS.sleep(1);
+                seconds += 1;
+                if(seconds % gcPeriod == 0) {
+                    System.gc();
+                }
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -260,9 +270,32 @@ public class AdvertisingTopologyNative {
         }
     }
 
+
+    public static void getOutputUsedMemory(Runtime runtime, PrintWriter pw, long MEGABYTE) {
+        long memory = getUsedMemory(runtime) / MEGABYTE;
+        pw.println("Used memory: " + memory + "MB");
+        pw.flush();
+        System.out.println("Used memory: " + memory + "MB");
+    }
     // Calculate the used memory
     public static long getUsedMemory(Runtime runtime) {
         return runtime.totalMemory() - runtime.freeMemory();
+    }
+
+    public static void getOutputUsedMemory2(MemoryMXBean memoryManager, PrintWriter pw, long MEGABYTE) {
+        long heapMemory = getUsedMemory2(memoryManager) / MEGABYTE;
+        long nonHeapMemory = getUsedMemoryNonHeap(memoryManager) / MEGABYTE;
+        pw.println("Used memory: " + heapMemory + "MB non-heap: " + nonHeapMemory + "MB");
+        pw.flush();
+        System.out.println("Used memory: " + heapMemory + "MB non-heap: " + nonHeapMemory + "MB");
+    }
+
+    public static long getUsedMemory2(MemoryMXBean memoryManager) {
+        return memoryManager.getHeapMemoryUsage().getUsed();
+    }
+
+    public static long getUsedMemoryNonHeap(MemoryMXBean memoryManager) {
+        return memoryManager.getNonHeapMemoryUsage().getUsed();
     }
 
     public static class DeserializeBolt implements
