@@ -30,7 +30,7 @@
         </dependency>
         <dependency>
             <groupId>edu.upenn</groupId>
-            <artifactId>streams-testing</artifactId>
+            <artifactId>diffstream</artifactId>
             <version>1.0-SNAPSHOT</version>
         </dependency>
     </dependencies>

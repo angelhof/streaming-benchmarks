@@ -15,19 +15,20 @@ Licensed under the terms of the Apache License 2.0. Please see LICENSE file in t
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-        <spark.version>2.3.1</spark.version>
-        <kafka.version>0.8.2.1</kafka.version>
-        <flink.version>1.6.0</flink.version>
-        <storm.version>1.2.2</storm.version>
+        <maven.compiler.release>11</maven.compiler.release>
+        <spark.version>2.4.6</spark.version>
+        <kafka.version>0.8.2.2</kafka.version>
+        <flink.version>1.10.1</flink.version>
+        <storm.version>2.2.0</storm.version>
         <scala.binary.version>2.11</scala.binary.version>
         <scala.version>2.11.12</scala.version>
-        <json.version>20180813</json.version>
-        <jedis.version>2.9.0</jedis.version>
+        <json.version>20200518</json.version>
+        <jedis.version>3.3.0</jedis.version>
         <sedis.version>1.2.2</sedis.version>
-        <slf4j.version>1.7.25</slf4j.version>
+        <slf4j.version>1.7.30</slf4j.version>
         <commons-cli.version>1.4</commons-cli.version>
-        <snakeyaml.version>1.23</snakeyaml.version>
-        <shade.version>3.1.1</shade.version>
+        <snakeyaml.version>1.26</snakeyaml.version>
+        <shade.version>3.2.4</shade.version>
         <!-- <apex.version>3.4.0</apex.version> -->
     </properties>
     <dependencyManagement>
@@ -127,7 +128,7 @@ Licensed under the terms of the Apache License 2.0. Please see LICENSE file in t
 
     <modules>
         <module>streaming-benchmark-common</module>
-        <module>storm-benchmarks</module>
+        <!-- <module>storm-benchmarks</module> -->
         <module>flink-benchmarks</module>
         <module>spark-benchmarks</module>
         <!-- <module>apex-benchmarks</module> -->
@@ -137,10 +138,9 @@ Licensed under the terms of the Apache License 2.0. Please see LICENSE file in t
         <plugins>
             <plugin>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.8.0</version>
+                <version>3.8.1</version>
                 <configuration>
-                    <source>1.8</source>
-                    <target>1.8</target>
+                    <release>11</release>
                 </configuration>
             </plugin>
         </plugins>
