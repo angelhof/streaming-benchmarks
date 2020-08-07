@@ -7,10 +7,10 @@ package flink.benchmark;
 import benchmark.common.advertising.RedisAdCampaignCache;
 import benchmark.common.advertising.CampaignProcessorCommon;
 import benchmark.common.Utils;
-import edu.upenn.streamstesting.EmptyDependence;
-import edu.upenn.streamstesting.FullDependence;
-import edu.upenn.streamstesting.remote.RemoteMatcherFactory;
-import edu.upenn.streamstesting.remote.RemoteStreamEquivalenceMatcher;
+import edu.upenn.diffstream.EmptyDependence;
+import edu.upenn.diffstream.FullDependence;
+import edu.upenn.diffstream.remote.RemoteMatcherFactory;
+import edu.upenn.diffstream.remote.RemoteStreamEquivalenceMatcher;
 import org.apache.flink.api.common.functions.*;
 import org.apache.flink.api.java.tuple.Tuple;
 import org.apache.flink.api.java.tuple.Tuple2;
@@ -28,7 +28,7 @@ import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import edu.upenn.streamstesting.StreamEquivalenceMatcher;
+import edu.upenn.diffstream.StreamEquivalenceMatcher;
 
 
 import javax.xml.crypto.Data;
