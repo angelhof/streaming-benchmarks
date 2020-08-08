@@ -161,7 +161,7 @@ public class AdvertisingTopologyNative {
 
     public static void compareTwoPipelines(StreamExecutionEnvironment env, DataStream<String> input) throws Exception {
         // Computation
-        KeyedStream<Tuple3<String, String, String>, Tuple> intermediateStream1 = computation(input);
+        KeyedStream<Tuple3<String, String, String>, Tuple> intermediateStream1 = computation(input, true);
         intermediateStream1.flatMap(new CampaignProcessor());
 
         KeyedStream<Tuple3<String, String, String>, Tuple> intermediateStream2 = computation(input);
@@ -206,7 +206,35 @@ public class AdvertisingTopologyNative {
     }
 
     public static KeyedStream<Tuple3<String, String, String>, Tuple> computation(DataStream<String> inputStream) {
-        KeyedStream<Tuple3<String, String, String>, Tuple> intermediateStream =
+
+	    return computation(inputStream, false);
+    }
+    public static KeyedStream<Tuple3<String, String, String>, Tuple> computation(DataStream<String> inputStream, boolean isSequential) {
+    	KeyedStream<Tuple3<String, String, String>, Tuple> intermediateStream;
+	if(isSequential)
+	{
+    	    intermediateStream =
+                inputStream
+                        .rebalance()
+                        // Parse the String as JSON
+                        .flatMap(new DeserializeBolt()).forceNonParallel()
+
+                        //Filter the records if event type is "view"
+                        .filter(new EventFilterBolt()).forceNonParallel()
+
+                        // project the event
+                        .<Tuple2<String, String>>project(2, 5).forceNonParallel()
+
+                        // perform join with redis data
+                        .flatMap(new RedisJoinBolt()).forceNonParallel()
+
+                        // process campaign
+                        .keyBy(0);
+
+	}
+	else
+	{		
+    	    intermediateStream =
                 inputStream
                         .rebalance()
                         // Parse the String as JSON
@@ -223,6 +251,7 @@ public class AdvertisingTopologyNative {
 
                         // process campaign
                         .keyBy(0);
+	}
         return intermediateStream;
     }
 
@@ -250,6 +279,7 @@ public class AdvertisingTopologyNative {
             getOutputUsedMemory2(memoryManager, pw, MEGABYTE);
 //            Runtime runtime = Runtime.getRuntime();
 //            getOutputUsedMemory(runtime, pw, MEGABYTE);
+            System.gc();
             while(true) {
 //                getOutputUsedMemory(runtime, pw, MEGABYTE);
                 getOutputUsedMemory2(memoryManager, pw, MEGABYTE);
