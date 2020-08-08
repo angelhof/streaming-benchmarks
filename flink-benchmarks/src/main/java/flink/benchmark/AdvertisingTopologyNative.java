@@ -51,11 +51,7 @@ public class AdvertisingTopologyNative {
 
     public static void main(final String[] args) throws Exception {
 
-        System.out.println("I am done pipi");
-
         ParameterTool parameterTool = ParameterTool.fromArgs(args);
-
-        System.out.println("I am done pipi 2");
 
 
         Map conf = Utils.findAndReadConfigFile(parameterTool.getRequired("confPath"), true);
@@ -63,35 +59,16 @@ public class AdvertisingTopologyNative {
         int hosts = ((Number)conf.get("process.hosts")).intValue();
         int cores = ((Number)conf.get("process.cores")).intValue();
 
-        System.out.println("I am done pipi 3");
-
 
         ParameterTool flinkBenchmarkParams = ParameterTool.fromMap(getFlinkConfs(conf));
 
         LOG.info("conf: {}", conf);
         LOG.info("Parameters used: {}", flinkBenchmarkParams.toMap());
 
-        System.out.println("I am done pipi 3");
-
-
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.getConfig().setGlobalJobParameters(flinkBenchmarkParams);
 
-		// Set the buffer timeout (default 100)
-        // Lowering the timeout will lead to lower latencies, but will eventually reduce throughput.
-//        env.setBufferTimeout(flinkBenchmarkParams.getLong("flink.buffer-timeout", 100));
-//
-//        if(flinkBenchmarkParams.has("flink.checkpoint-interval")) {
-//            // enable checkpointing for fault tolerance
-//            env.enableCheckpointing(flinkBenchmarkParams.getLong("flink.checkpoint-interval", 1000));
-//        }
-
-        // WARNING: There is a problem with the parallelism. If I uncomment the following the benchmark doesn't run at all.
-        // set default parallelism for all operators (recommended value: number of available worker CPU cores in the cluster (hosts * cores))
-//        env.setParallelism(hosts * cores);
-        // env.setParallelism(1);
         env.setParallelism(2);
-        System.out.println("I am done pipi 4");
 
 
         // This should be the same for stream for both tests, as it is the input
@@ -101,7 +78,6 @@ public class AdvertisingTopologyNative {
                         new SimpleStringSchema(),
                         flinkBenchmarkParams.getProperties())).setParallelism(Math.min(hosts * cores, kafkaPartitions));
 
-        System.out.println("I am done pipi 5");
 
 
 	TimeUnit.SECONDS.sleep(5);
@@ -129,14 +105,6 @@ public class AdvertisingTopologyNative {
         // intermediateStream.print();
 
         intermediateStream.flatMap(new CampaignProcessor());
-
-        // TODO: I could try to do some optimization on the campaignProcessor since the events that it gets are keyed by,
-        // so all the events of the same campaign_id happen in the same node. Maybe we can ditch part of the synchronization
-        // that there is in campaign processor?
-
-        // VERY IMPORTANT NOTE: I shouldn't look at any optimizations in the last step, as it is very difficult to witness
-        // them. I should just try to do optimizations before the last step. Or just do a test there.
-
         env.execute();
     }
 
@@ -174,19 +142,10 @@ public class AdvertisingTopologyNative {
     public static void compareOutputs(KeyedStream<Tuple3<String, String, String>, Tuple> leftStream,
                                       KeyedStream<Tuple3<String, String, String>, Tuple> rightStream,
                                       StreamExecutionEnvironment env) throws Exception {
-        // This can be used to test that the remote matcher indeed works.
-//        KeyedStream<Tuple3<String, String, String>, Tuple> bad =
-//                env.fromElements(new Tuple3<>("pipi", "popo", "pupu")).keyBy(0);
-
-        // Here is where we will probe. Unfortunately, there is no ordering needed as it seems, as the event time
-        // can be used to write in a window far back in the past..
 
         RemoteMatcherFactory.init();
         RemoteStreamEquivalenceMatcher<Tuple3<String, String, String>> matcher = RemoteMatcherFactory.getInstance().
                 createMatcher(leftStream, rightStream, new EmptyDependence<>(), true);
-
-        // TODO: Can we change the implementation in a way that requires ordering? (It is clear that this implementation
-        // doesn't provide any ordering though).
 
         // Run a thread that will output memory measurements every 1 second.
         Runnable r = new Runnable() {
@@ -199,9 +158,7 @@ public class AdvertisingTopologyNative {
 
         // Execute and then ask the matcher if the outputs are equivalent
         env.execute();
-        System.out.println("I am done pipi 6");
         matcher.assertStreamsAreEquivalent();
-        System.out.println("I am done pipi 7");
         RemoteMatcherFactory.destroy();
     }
 
@@ -233,7 +190,7 @@ public class AdvertisingTopologyNative {
 
 	}
 	else
-	{		
+	{
     	    intermediateStream =
                 inputStream
                         .rebalance()
