@@ -9,8 +9,8 @@ import benchmark.common.advertising.CampaignProcessorCommon;
 import benchmark.common.Utils;
 import edu.upenn.diffstream.EmptyDependence;
 import edu.upenn.diffstream.FullDependence;
-import edu.upenn.diffstream.remote.RemoteMatcherFactory;
-import edu.upenn.diffstream.remote.RemoteStreamEquivalenceMatcher;
+import edu.upenn.diffstream.matcher.MatcherFactory;
+import edu.upenn.diffstream.monitor.ResourceMonitor;
 import org.apache.flink.api.common.functions.*;
 import org.apache.flink.api.java.tuple.Tuple;
 import org.apache.flink.api.java.tuple.Tuple2;
@@ -27,9 +27,6 @@ import org.apache.flink.util.Collector;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import edu.upenn.diffstream.StreamEquivalenceMatcher;
-
 
 import javax.xml.crypto.Data;
 import java.io.File;
@@ -55,9 +52,9 @@ public class AdvertisingTopologyNative {
 
 
         Map conf = Utils.findAndReadConfigFile(parameterTool.getRequired("confPath"), true);
-        int kafkaPartitions = ((Number)conf.get("kafka.partitions")).intValue();
-        int hosts = ((Number)conf.get("process.hosts")).intValue();
-        int cores = ((Number)conf.get("process.cores")).intValue();
+        int kafkaPartitions = ((Number) conf.get("kafka.partitions")).intValue();
+        int hosts = ((Number) conf.get("process.hosts")).intValue();
+        int cores = ((Number) conf.get("process.cores")).intValue();
 
 
         ParameterTool flinkBenchmarkParams = ParameterTool.fromMap(getFlinkConfs(conf));
@@ -79,8 +76,7 @@ public class AdvertisingTopologyNative {
                         flinkBenchmarkParams.getProperties())).setParallelism(Math.min(hosts * cores, kafkaPartitions));
 
 
-
-	TimeUnit.SECONDS.sleep(5);
+        TimeUnit.SECONDS.sleep(5);
 
         // Uncomment any of the following scenarios.
 
@@ -142,147 +138,62 @@ public class AdvertisingTopologyNative {
     public static void compareOutputs(KeyedStream<Tuple3<String, String, String>, Tuple> leftStream,
                                       KeyedStream<Tuple3<String, String, String>, Tuple> rightStream,
                                       StreamExecutionEnvironment env) throws Exception {
-
-        RemoteMatcherFactory.init();
-        RemoteStreamEquivalenceMatcher<Tuple3<String, String, String>> matcher = RemoteMatcherFactory.getInstance().
-                createMatcher(leftStream, rightStream, new EmptyDependence<>(), true);
-
-        // Run a thread that will output memory measurements every 1 second.
-        Runnable r = new Runnable() {
-            public void run() {
-                measureMemory();
-            }
-        };
-
-        new Thread(r).start();
-
-        // Execute and then ask the matcher if the outputs are equivalent
-        env.execute();
-        matcher.assertStreamsAreEquivalent();
-        RemoteMatcherFactory.destroy();
+        MatcherFactory.initRemote();
+        try (var matcher = MatcherFactory.createRemoteMatcher(leftStream, rightStream, new EmptyDependence<Tuple3<String, String, String>>());
+             var monitor = new ResourceMonitor(matcher, "unmatched-items.txt", "memory-log.txt")) {
+            monitor.start();
+            env.execute();
+            matcher.assertStreamsAreEquivalent();
+        }
+        MatcherFactory.destroyRemote();
     }
 
     public static KeyedStream<Tuple3<String, String, String>, Tuple> computation(DataStream<String> inputStream) {
 
-	    return computation(inputStream, false);
+        return computation(inputStream, false);
     }
+
     public static KeyedStream<Tuple3<String, String, String>, Tuple> computation(DataStream<String> inputStream, boolean isSequential) {
-    	KeyedStream<Tuple3<String, String, String>, Tuple> intermediateStream;
-	if(isSequential)
-	{
-    	    intermediateStream =
-                inputStream
-                        .rebalance()
-                        // Parse the String as JSON
-                        .flatMap(new DeserializeBolt()).forceNonParallel()
+        KeyedStream<Tuple3<String, String, String>, Tuple> intermediateStream;
+        if (isSequential) {
+            intermediateStream =
+                    inputStream
+                            .rebalance()
+                            // Parse the String as JSON
+                            .flatMap(new DeserializeBolt()).forceNonParallel()
 
-                        //Filter the records if event type is "view"
-                        .filter(new EventFilterBolt()).forceNonParallel()
+                            //Filter the records if event type is "view"
+                            .filter(new EventFilterBolt()).forceNonParallel()
 
-                        // project the event
-                        .<Tuple2<String, String>>project(2, 5).forceNonParallel()
+                            // project the event
+                            .<Tuple2<String, String>>project(2, 5).forceNonParallel()
 
-                        // perform join with redis data
-                        .flatMap(new RedisJoinBolt()).forceNonParallel()
+                            // perform join with redis data
+                            .flatMap(new RedisJoinBolt()).forceNonParallel()
 
-                        // process campaign
-                        .keyBy(0);
+                            // process campaign
+                            .keyBy(0);
 
-	}
-	else
-	{
-    	    intermediateStream =
-                inputStream
-                        .rebalance()
-                        // Parse the String as JSON
-                        .flatMap(new DeserializeBolt())
+        } else {
+            intermediateStream =
+                    inputStream
+                            .rebalance()
+                            // Parse the String as JSON
+                            .flatMap(new DeserializeBolt())
 
-                        //Filter the records if event type is "view"
-                        .filter(new EventFilterBolt())
+                            //Filter the records if event type is "view"
+                            .filter(new EventFilterBolt())
 
-                        // project the event
-                        .<Tuple2<String, String>>project(2, 5)
+                            // project the event
+                            .<Tuple2<String, String>>project(2, 5)
 
-                        // perform join with redis data
-                        .flatMap(new RedisJoinBolt())
+                            // perform join with redis data
+                            .flatMap(new RedisJoinBolt())
 
-                        // process campaign
-                        .keyBy(0);
-	}
-        return intermediateStream;
-    }
-
-    // If we have issues with sleep drift, then we can use this method.
-    // https://stackoverflow.com/questions/24104313/how-do-i-make-a-delay-in-java
-    public static void measureMemory() {
-        PrintWriter pw = null;
-
-        final long MEGABYTE = 1024L * 1024L;
-
-        System.out.println(" -- -- -- Thread -- -- -- ");
-        // TODO: Debug why this doesn't work, when before it worked properly
-        try {
-            File file = new File("memory-log.txt");
-            System.out.println("File writable: " + file.canWrite());
-            file.setWritable(true);
-            FileWriter fw = new FileWriter(file);
-            pw = new PrintWriter(fw);
-            pw.println("Hi :)");
-
-            long seconds = 0;
-            long gcPeriod = 120;
-
-            MemoryMXBean memoryManager = ManagementFactory.getMemoryMXBean();
-            getOutputUsedMemory2(memoryManager, pw, MEGABYTE);
-//            Runtime runtime = Runtime.getRuntime();
-//            getOutputUsedMemory(runtime, pw, MEGABYTE);
-            System.gc();
-            while(true) {
-//                getOutputUsedMemory(runtime, pw, MEGABYTE);
-                getOutputUsedMemory2(memoryManager, pw, MEGABYTE);
-                TimeUnit.SECONDS.sleep(1);
-                seconds += 1;
-                if(seconds % gcPeriod == 0) {
-                    System.gc();
-                }
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        } catch (InterruptedException e) {
-            System.out.println(" !! !! [ERROR] Thread got interrupted!");
-        } finally {
-            if (pw != null) {
-                pw.close();
-            }
+                            // process campaign
+                            .keyBy(0);
         }
-    }
-
-
-    public static void getOutputUsedMemory(Runtime runtime, PrintWriter pw, long MEGABYTE) {
-        long memory = getUsedMemory(runtime) / MEGABYTE;
-        pw.println("Used memory: " + memory + "MB");
-        pw.flush();
-        System.out.println("Used memory: " + memory + "MB");
-    }
-    // Calculate the used memory
-    public static long getUsedMemory(Runtime runtime) {
-        return runtime.totalMemory() - runtime.freeMemory();
-    }
-
-    public static void getOutputUsedMemory2(MemoryMXBean memoryManager, PrintWriter pw, long MEGABYTE) {
-        long heapMemory = getUsedMemory2(memoryManager) / MEGABYTE;
-        long nonHeapMemory = getUsedMemoryNonHeap(memoryManager) / MEGABYTE;
-        pw.println("Used memory: " + heapMemory + "MB non-heap: " + nonHeapMemory + "MB");
-        pw.flush();
-        System.out.println("Used memory: " + heapMemory + "MB non-heap: " + nonHeapMemory + "MB");
-    }
-
-    public static long getUsedMemory2(MemoryMXBean memoryManager) {
-        return memoryManager.getHeapMemoryUsage().getUsed();
-    }
-
-    public static long getUsedMemoryNonHeap(MemoryMXBean memoryManager) {
-        return memoryManager.getNonHeapMemoryUsage().getUsed();
+        return intermediateStream;
     }
 
     public static class DeserializeBolt implements
@@ -303,14 +214,17 @@ public class AdvertisingTopologyNative {
                             obj.getString("ip_address"));
             out.collect(tuple);
         }
+
     }
 
     public static class EventFilterBolt implements
             FilterFunction<Tuple7<String, String, String, String, String, String, String>> {
+
         @Override
         public boolean filter(Tuple7<String, String, String, String, String, String, String> tuple) throws Exception {
             return tuple.getField(4).equals("view");
         }
+
     }
 
     public static final class RedisJoinBolt extends RichFlatMapFunction<Tuple2<String, String>, Tuple3<String, String, String>> {
@@ -332,7 +246,7 @@ public class AdvertisingTopologyNative {
                             Collector<Tuple3<String, String, String>> out) throws Exception {
             String ad_id = input.getField(0);
             String campaign_id = this.redisAdCampaignCache.execute(ad_id);
-            if(campaign_id == null) {
+            if (campaign_id == null) {
                 return;
             }
 
@@ -342,6 +256,7 @@ public class AdvertisingTopologyNative {
                     (String) input.getField(1));
             out.collect(tuple);
         }
+
     }
 
     // Every 1 second, windows are flushed.
@@ -384,7 +299,6 @@ public class AdvertisingTopologyNative {
     // Can Flink guarantee exactly once for all events and that they will be executed in their respective window?
 
 
-
     public static class CampaignProcessor extends RichFlatMapFunction<Tuple3<String, String, String>, String> {
 
         CampaignProcessorCommon campaignProcessorCommon;
@@ -403,10 +317,11 @@ public class AdvertisingTopologyNative {
         public void flatMap(Tuple3<String, String, String> tuple, Collector<String> out) throws Exception {
 
             String campaign_id = tuple.getField(0);
-            String event_time =  tuple.getField(2);
+            String event_time = tuple.getField(2);
             // TODO: Understand if this requires any order
             this.campaignProcessorCommon.execute(campaign_id, event_time);
         }
+
     }
 
     private static Map<String, String> getFlinkConfs(Map conf) {
@@ -424,44 +339,45 @@ public class AdvertisingTopologyNative {
     }
 
     private static String getZookeeperServers(Map conf) {
-        if(!conf.containsKey("zookeeper.servers")) {
+        if (!conf.containsKey("zookeeper.servers")) {
             throw new IllegalArgumentException("Not zookeeper servers found!");
         }
         return listOfStringToString((List<String>) conf.get("zookeeper.servers"), String.valueOf(conf.get("zookeeper.port")));
     }
 
     private static String getKafkaBrokers(Map conf) {
-        if(!conf.containsKey("kafka.brokers")) {
+        if (!conf.containsKey("kafka.brokers")) {
             throw new IllegalArgumentException("No kafka brokers found!");
         }
-        if(!conf.containsKey("kafka.port")) {
+        if (!conf.containsKey("kafka.port")) {
             throw new IllegalArgumentException("No kafka port found!");
         }
         return listOfStringToString((List<String>) conf.get("kafka.brokers"), String.valueOf(conf.get("kafka.port")));
     }
 
     private static String getKafkaTopic(Map conf) {
-        if(!conf.containsKey("kafka.topic")) {
+        if (!conf.containsKey("kafka.topic")) {
             throw new IllegalArgumentException("No kafka topic found!");
         }
-        return (String)conf.get("kafka.topic");
+        return (String) conf.get("kafka.topic");
     }
 
     private static String getRedisHost(Map conf) {
-        if(!conf.containsKey("redis.host")) {
+        if (!conf.containsKey("redis.host")) {
             throw new IllegalArgumentException("No redis host found!");
         }
-        return (String)conf.get("redis.host");
+        return (String) conf.get("redis.host");
     }
 
     public static String listOfStringToString(List<String> list, String port) {
         String val = "";
-        for(int i=0; i<list.size(); i++) {
+        for (int i = 0; i < list.size(); i++) {
             val += list.get(i) + ":" + port;
-            if(i < list.size()-1) {
+            if (i < list.size() - 1) {
                 val += ",";
             }
         }
         return val;
     }
+
 }
