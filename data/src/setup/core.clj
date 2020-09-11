@@ -181,25 +181,30 @@
          "\", \"event_time\": \"" (str time)
          "\", \"ip_address\": \"1.2.3.4\"}")))
 
-(defn run [throughput with-skew? kafka-hosts redis-host]
-  (println "Running, emitting" throughput "tuples per second.")
+(defn run [throughput acceleration with-skew? kafka-hosts redis-host]
+  (println "Running, emitting" throughput "tuples per second, with acceleration of" acceleration "tuples per second.")
   (let [ads (gen-ads redis-host)
         page-ids (make-ids 100)
         user-ids (make-ids 100)
+
+        ;; Let v be the initial throughput and a the acceleration. We obtain the time point when we should emit
+        ;; the n-th event by solving the quadratic equation at^2/2 + vt = n. The solution, expressed in the form
+        ;; that generalizes the case of a=0, is given by
+        ;;
+        ;;   t = 2n / (v + sqrt(v^2 + 2an))
+        ;;
+        ;; This is relative to the start time, and expressed in seconds.
         start-time-ns (* 1000000 (System/currentTimeMillis))
-        period-ns (long (/ 1000000000 throughput))
-        times (map #(+ (* period-ns %) start-time-ns) (range))]
+        throughput-squared (* throughput throughput)
+        times (map #(+ (* (/ 2000000000 (+ throughput (Math/sqrt (+ throughput-squared (* 2 acceleration %))))) %) start-time-ns) (range))]
     (with-open [p (producer {"bootstrap.servers" kafka-hosts}
                             (byte-array-serializer)
                             (byte-array-serializer))]
       (doseq [t times]
         (let [cur (System/currentTimeMillis)
               t (long (/ t 1000000))]
-          (if (> t cur)
-            (Thread/sleep (- t cur))
-            (future
-              (if (> cur (+ t 100))
-                (println "Curr time:" cur "- Falling behind by:" (- cur t) "ms"))))
+          (when (> t cur)
+            (Thread/sleep (- t cur)))
           (send p (record "ad-events"
                           (.getBytes (make-kafka-event-at t with-skew? ads user-ids page-ids)))))))))
 
@@ -264,6 +269,9 @@
    ["-t" "--throughput COUNT" "Should be used with '-r'. This is the number of tuples per second to emit. (Obviously it can't emit ridiculous numbers per second.)"
     :default 0
     :parse-fn #(Long/parseLong %)]
+   ["-b" "--acceleration COUNT" "Should be used with '-r'. This is the rate of change of throughput per second."
+    :default 0
+    :parse-fn #(Long/parseLong %)]
    ["-w" "--with-skew" "Add minor skew and late tuples into the mix."]
    ["-g" "--get-stats" "Read through redis and collect stats on end-to-end latency and so forth for the real-time simulation."]
    ["-a" "--configPath PATH" "Path to config yaml file"
@@ -281,6 +289,6 @@
       (:setup options)                        (do-setup conf)
       (:check options)                        (check-correct redis-host)
       (:new options)                          (do-new-setup redis-host)
-      (:run options)                          (run (:throughput options) (:with-skew options) kafka-hosts redis-host)
+      (:run options)                          (run (:throughput options) (:acceleration options) (:with-skew options) kafka-hosts redis-host)
       (:get-stats options)                    (get-stats redis-host)
       :else                                   (println summary))))
